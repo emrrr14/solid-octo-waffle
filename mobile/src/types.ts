@@ -77,6 +77,8 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' |
 /** REST payloads (backend/app/api/routes.py). */
 export interface AllocationView {
   portfolio_id: string;
+  /** Server-side id of this decision; doubles as the idempotency key. */
+  decision_id: string;
   decided_at: string;
   trigger_reason: string;
   notional: number;

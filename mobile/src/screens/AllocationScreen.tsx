@@ -16,13 +16,11 @@ import {WeightBar} from '../components/WeightBar';
 import {config} from '../config';
 import {formatMoney, formatPercent, formatWeight} from '../format';
 import {SecureVault} from '../native/SecureVault';
+import {session} from '../session';
 import type {AllocationView} from '../types';
 import {colors, radius, spacing, typography} from '../theme';
 
-const api = new ApiClient({
-  baseUrl: config.apiBaseUrl,
-  getToken: () => SecureVault.readSession(),
-});
+const api = new ApiClient({baseUrl: config.apiBaseUrl, session});
 
 /**
  * The proposed allocation, and the button that accepts it.
@@ -64,7 +62,7 @@ export function AllocationScreen() {
 
     setSubmitting(true);
     try {
-      await api.confirmRebalance(config.portfolioId, data.decided_at);
+      await api.confirmRebalance(config.portfolioId, data.decision_id);
       Alert.alert('Emirler iletildi', 'Dağılım güncellemesi işleme alındı.');
       await load();
     } catch (e) {

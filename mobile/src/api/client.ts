@@ -1,12 +1,15 @@
 /**
  * REST client.
  *
- * Deliberately thin: no retries on POST (a duplicated rebalance confirmation is
- * worse than an error message), a hard timeout on everything (a finance app that
- * spins forever on a flaky train connection is indistinguishable from a broken
- * one), and typed responses so a backend schema change fails the typecheck.
+ * Deliberately thin: a hard timeout on everything (a finance app that spins
+ * forever on a flaky train connection is indistinguishable from a broken one),
+ * typed responses so a backend schema change fails the typecheck, and exactly
+ * one retry - after a forced token refresh on a 401. Nothing else is retried:
+ * the confirmation endpoint is safe to replay only because it carries an
+ * idempotency key, and a retry loop on a dead session just hammers the API.
  */
 
+import type {SessionLike} from '../auth/session';
 import type { AllocationView, MacroEventView } from '../types';
 
 export class ApiError extends Error {
@@ -20,17 +23,16 @@ export class ApiError extends Error {
 
 export interface ApiConfig {
   baseUrl: string;
-  getToken: () => Promise<string | null>;
+  session: SessionLike;
   timeoutMs?: number;
 }
 
 export class ApiClient {
   constructor(private readonly config: ApiConfig) {}
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async send<T>(path: string, init: RequestInit, token: string | null): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs ?? 10_000);
-    const token = await this.config.getToken();
     try {
       const response = await fetch(`${this.config.baseUrl}${path}`, {
         ...init,
@@ -53,6 +55,22 @@ export class ApiClient {
       throw new ApiError((error as Error).message, 0);
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    try {
+      return await this.send<T>(path, init, await this.config.session.getAccessToken());
+    } catch (error) {
+      // One forced refresh, one retry. The access token can lapse between the
+      // session's skew check and the server reading it; a single retry hides
+      // that, while a retry loop would just hammer a genuinely dead session.
+      // The refresh itself is single-flight inside the session, so parallel
+      // requests hitting 401 together still rotate the token exactly once.
+      if (!(error instanceof ApiError) || error.status !== 401) throw error;
+      const refreshed = await this.config.session.getAccessToken(true);
+      if (!refreshed) throw error;
+      return this.send<T>(path, init, refreshed);
     }
   }
 

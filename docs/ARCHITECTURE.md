@@ -194,6 +194,43 @@ the first bottleneck, and it scales by splitting symbols across venue processes.
 
 ---
 
+## 2b. Authentication
+
+Two token types, deliberately different in kind (`backend/app/security/tokens.py`):
+
+| | Access | Refresh |
+|---|---|---|
+| Form | signed JWT (HS256) | opaque 48 random bytes |
+| Lifetime | 15 minutes | 30 days |
+| Stored | nowhere on the server; in memory on the device | SHA-256 hash in Postgres; the token itself in the iOS Keychain |
+| Verified | statelessly, on every request **and every websocket handshake** | one indexed lookup |
+
+Stateless access tokens are what make a 1 Hz stream cheap: the handshake
+authorises once, with no database round trip per frame. Refresh tokens are
+opaque because they must be revocable the moment a phone is lost, and a
+stateless token cannot be.
+
+**Rotation with reuse detection.** Every refresh mints a successor and marks its
+predecessor used. Presenting a used token revokes the whole family — that is the
+fingerprint of a stolen token being replayed alongside the real device, and it is
+the only cheap defence a mobile client has. The client side of that bargain is
+that refresh must be **single-flight**: two parallel refreshes would revoke the
+family and sign the user out, which is why `mobile/src/auth/session.ts` collapses
+concurrent callers into one request.
+
+**Websockets carry the token in a subprotocol** (`Sec-WebSocket-Protocol: bearer,
+<token>`), because the handshake has no Authorization header in any browser or
+React Native implementation, and a token in the query string ends up in proxy
+logs and crash reports. The server echoes `bearer` on accept. A socket held open
+for hours outlives its 15-minute token, so the stream closes with 4401 on expiry
+and the client refreshes and reconnects — invisibly, in well under a second.
+
+Passwords use `hashlib.scrypt` (stdlib, memory-hard, ~250ms per hash here — tune
+`SCRYPT_N` to your hardware). Login hashes even for unknown emails so response
+time cannot be used to enumerate accounts.
+
+---
+
 ## 3. Macro-triggered rebalancing (task 2)
 
 Full walkthrough and rationale in [`REBALANCING.md`](REBALANCING.md); the runnable

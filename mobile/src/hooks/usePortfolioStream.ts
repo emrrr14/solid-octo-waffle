@@ -13,7 +13,7 @@ import {useEffect, useRef} from 'react';
 import {AppState, type AppStateStatus} from 'react-native';
 
 import {PortfolioSocket} from '../api/socket';
-import {SecureVault} from '../native/SecureVault';
+import {session} from '../session';
 import {usePortfolioStore} from '../state/portfolioStore';
 
 export function usePortfolioStream(portfolioId: string, wsUrl: string): void {
@@ -26,7 +26,9 @@ export function usePortfolioStream(portfolioId: string, wsUrl: string): void {
     const socket = new PortfolioSocket({
       url: wsUrl,
       portfolioId,
-      getToken: () => SecureVault.readSession(),
+      // `force` reaches the session's single-flight refresh, so a 4401 on the
+      // socket and a 401 on a REST call rotate the refresh token exactly once.
+      getToken: (force?: boolean) => session.getAccessToken(force),
       onFrame: ingest,
       onStatus: setStatus,
       onFatal: setError,

@@ -86,6 +86,7 @@ const delta = (moved) => ({
 
 const ALLOCATION = {
   portfolio_id: 'demo-500try',
+  decision_id: 'decision-mock-1',
   decided_at: new Date().toISOString(),
   trigger_reason: 'rate_cut -25bp on 2026-09-05 (-25bp vs expectation)',
   notional: 500,
@@ -113,9 +114,85 @@ const MACRO_EVENTS = [
   {id: '3', series: 'TR_CPI_YOY', kind: 'inflation_print', observed_on: '2026-07-03', previous_value: 38.1, new_value: 35.4, change_bps: -270, surprise_bps: -80, triggered_rebalance: true, note: ''},
 ];
 
-const server = http.createServer((req, res) => {
+// ---------------------------------------------------------------- auth
+//
+// Mirrors the real contract closely enough to exercise the client: rotating
+// refresh tokens, a 401 on anything unknown, and bearer auth on every read.
+
+const DEMO = {email: 'demo@roboadvisor.example', password: 'demo-password-123'};
+const accessTokens = new Set();
+const refreshTokens = new Set();
+let issued = 0;
+
+function issuePair() {
+  issued += 1;
+  const access = `mock-access-${issued}`;
+  const refresh = `mock-refresh-${issued}`;
+  accessTokens.add(access);
+  refreshTokens.add(refresh);
+  return {access_token: access, refresh_token: refresh, token_type: 'bearer', expires_in: 900};
+}
+
+function isAuthorised(req) {
+  const header = req.headers.authorization ?? '';
+  return header.startsWith('Bearer ') && accessTokens.has(header.slice(7));
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (chunk) => (raw += chunk));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(raw || '{}'));
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
+const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   const url = req.url ?? '';
+
+  if (url === '/api/auth/login') {
+    const body = await readBody(req);
+    if (body.email !== DEMO.email || body.password !== DEMO.password) {
+      res.statusCode = 401;
+      res.end(JSON.stringify({detail: 'Invalid credentials'}));
+      return;
+    }
+    res.end(JSON.stringify(issuePair()));
+    return;
+  }
+
+  if (url === '/api/auth/refresh') {
+    const body = await readBody(req);
+    if (!refreshTokens.delete(body.refresh_token)) {
+      // Unknown or already-rotated: the real server would also revoke the
+      // family here, which from the client's side looks exactly like this.
+      res.statusCode = 401;
+      res.end(JSON.stringify({detail: 'Invalid credentials'}));
+      return;
+    }
+    res.end(JSON.stringify(issuePair()));
+    return;
+  }
+
+  if (url === '/api/auth/logout') {
+    const body = await readBody(req);
+    refreshTokens.delete(body.refresh_token);
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
+  if (!isAuthorised(req)) {
+    res.statusCode = 401;
+    res.end(JSON.stringify({detail: 'Invalid credentials'}));
+    return;
+  }
 
   if (url.includes('/allocation')) {
     res.end(JSON.stringify(ALLOCATION));
@@ -131,9 +208,22 @@ const server = http.createServer((req, res) => {
 
 // ---------------------------------------------------------------- WebSocket
 
-const wss = new WebSocketServer({server, path: undefined});
+const wss = new WebSocketServer({
+  server,
+  // Echo the client's "bearer" subprotocol; without it the client closes the
+  // connection itself, which is a confusing failure to debug from the app side.
+  handleProtocols: (protocols) => (protocols.has('bearer') ? 'bearer' : false),
+});
 
 wss.on('connection', (socket, request) => {
+  const offered = (request.headers['sec-websocket-protocol'] ?? '').split(',').map((p) => p.trim());
+  const token = offered[0] === 'bearer' ? offered[1] : undefined;
+  if (!token || !accessTokens.has(token)) {
+    console.log('[ws] rejected unauthenticated handshake');
+    socket.close(4401, 'unauthenticated');
+    return;
+  }
+
   console.log(`[ws] client connected: ${request.url}`);
   socket.send(JSON.stringify(snapshot()));
 

@@ -4,10 +4,13 @@ import {NavigationContainer, type Theme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 
-import {SecureVault} from './native/SecureVault';
+import {AccountScreen} from './screens/AccountScreen';
 import {AllocationScreen} from './screens/AllocationScreen';
 import {MacroScreen} from './screens/MacroScreen';
 import {PortfolioScreen} from './screens/PortfolioScreen';
+import {SignInScreen} from './screens/SignInScreen';
+import {session} from './session';
+import type {AuthState} from './auth/session';
 import {colors} from './theme';
 
 const Tab = createBottomTabNavigator();
@@ -31,22 +34,18 @@ const navigationTheme: Theme = {
 };
 
 export default function App() {
-  const [ready, setReady] = useState(false);
+  const [auth, setAuth] = useState<AuthState>('unknown');
 
   useEffect(() => {
-    // Session bootstrap.  In production this is the sign-in flow writing a
-    // real bearer token into the Keychain; in development we seed one so the
-    // socket has something to present to the mock server.
-    (async () => {
-      const existing = await SecureVault.readSession();
-      if (!existing && __DEV__) {
-        await SecureVault.saveSession('dev-token');
-      }
-      setReady(true);
-    })();
+    // Cold start: a refresh token in the Keychain is exchanged for an access
+    // token before anything renders, so a returning user never sees the
+    // sign-in screen flash past.
+    const unsubscribe = session.subscribe(setAuth);
+    void session.restore();
+    return unsubscribe;
   }, []);
 
-  if (!ready) {
+  if (auth === 'unknown') {
     return (
       <View style={styles.splash}>
         <ActivityIndicator color={colors.accent} />
@@ -57,19 +56,26 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      <NavigationContainer theme={navigationTheme}>
-        <Tab.Navigator
-          screenOptions={{
-            headerShown: false,
-            tabBarActiveTintColor: colors.accent,
-            tabBarInactiveTintColor: colors.textFaint,
-            tabBarStyle: {backgroundColor: colors.surface, borderTopColor: colors.border},
-          }}>
-          <Tab.Screen name="Portföy" component={PortfolioScreen} />
-          <Tab.Screen name="Dağılım" component={AllocationScreen} />
-          <Tab.Screen name="Makro" component={MacroScreen} />
-        </Tab.Navigator>
-      </NavigationContainer>
+      {auth === 'signed-out' ? (
+        <SignInScreen onSignedIn={() => setAuth(session.getState())} />
+      ) : (
+        <NavigationContainer theme={navigationTheme}>
+          <Tab.Navigator
+            screenOptions={{
+              headerShown: false,
+              tabBarActiveTintColor: colors.accent,
+              tabBarInactiveTintColor: colors.textFaint,
+              tabBarStyle: {backgroundColor: colors.surface, borderTopColor: colors.border},
+            }}>
+            <Tab.Screen name="Portföy" component={PortfolioScreen} />
+            <Tab.Screen name="Dağılım" component={AllocationScreen} />
+            <Tab.Screen name="Makro" component={MacroScreen} />
+            <Tab.Screen name="Hesap">
+              {() => <AccountScreen onSignedOut={() => setAuth('signed-out')} />}
+            </Tab.Screen>
+          </Tab.Navigator>
+        </NavigationContainer>
+      )}
     </SafeAreaProvider>
   );
 }

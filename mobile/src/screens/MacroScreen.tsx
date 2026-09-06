@@ -5,14 +5,11 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {ApiClient} from '../api/client';
 import {config} from '../config';
 import {formatBps} from '../format';
-import {SecureVault} from '../native/SecureVault';
+import {session} from '../session';
 import type {MacroEventView} from '../types';
 import {colors, radius, spacing, typography} from '../theme';
 
-const api = new ApiClient({
-  baseUrl: config.apiBaseUrl,
-  getToken: () => SecureVault.readSession(),
-});
+const api = new ApiClient({baseUrl: config.apiBaseUrl, session});
 
 const KIND_LABEL: Record<MacroEventView['kind'], string> = {
   rate_cut: 'Faiz indirimi',

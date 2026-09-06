@@ -30,6 +30,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.domain.models import Portfolio, PortfolioValuation
 from app.market.cache import LastPriceCache
 from app.market.valuation import FxConverter, value_portfolio
+from app.security.tokens import TokenError, decode_access_token, extract_bearer_subprotocol
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -93,8 +94,11 @@ async def stream_portfolio(
     portfolio: Portfolio,
     cache: LastPriceCache,
     fx: FxConverter,
+    token_expires_at: datetime | None = None,
 ) -> None:
-    await ws.accept()
+    # Echo the "bearer" subprotocol the client offered; a client whose
+    # subprotocol is not echoed closes the connection itself.
+    await ws.accept(subprotocol="bearer")
     previous: dict[str, float] = {}
     last_heartbeat = 0.0
     loop = asyncio.get_running_loop()
@@ -102,6 +106,16 @@ async def stream_portfolio(
     try:
         while True:
             started = loop.time()
+
+            # A socket authorised once could otherwise outlive its access token
+            # for hours.  Close on expiry and let the client reconnect with a
+            # refreshed one - the reconnect path already exists and is tested.
+            if token_expires_at is not None and datetime.now(timezone.utc) >= token_expires_at:
+                log.info("ws: access token expired for %s, asking client to reauth",
+                         portfolio.portfolio_id)
+                await ws.close(code=4401)
+                return
+
             valuation = await value_portfolio(portfolio, cache, fx)
 
             if not previous:
@@ -139,13 +153,35 @@ async def stream_portfolio(
 
 @router.websocket("/ws/portfolio/{portfolio_id}")
 async def portfolio_socket(ws: WebSocket, portfolio_id: str) -> None:
-    """Entry point.  Auth happens *before* ``accept()`` in production: read the
-    short-lived token from the subprotocol header or a query param, resolve the
-    user, and reject with 4401 if it does not own ``portfolio_id``.
+    """Entry point.  Authentication happens *before* ``accept()``.
+
+    The websocket handshake carries no Authorization header in any browser or
+    React Native implementation, and a token in the query string ends up in
+    proxy logs and crash reports - so the client sends
+    ``Sec-WebSocket-Protocol: bearer, <access token>`` and we echo ``bearer``.
+
+    Close codes are part of the client contract: 4401 means "reauthenticate and
+    come back", 4404 means "stop retrying".
     """
-    app = ws.app.state
-    portfolio = await app.portfolios.get(portfolio_id)
+    state = ws.app.state
+
+    token = extract_bearer_subprotocol(ws.headers.get("sec-websocket-protocol"))
+    if token is None:
+        await ws.close(code=4401)
+        return
+    try:
+        claims = decode_access_token(token, state.token_settings)
+    except TokenError as exc:
+        log.info("ws: rejected handshake for %s: %s", portfolio_id, exc)
+        await ws.close(code=4401)
+        return
+
+    # Ownership is enforced in the repository, so an authenticated user asking
+    # for someone else's portfolio gets the same answer as one asking for a
+    # portfolio that does not exist.
+    portfolio = await state.portfolios.get(portfolio_id, user_id=claims.user_id)
     if portfolio is None:
         await ws.close(code=4404)
         return
-    await stream_portfolio(ws, portfolio, app.cache, app.fx)
+
+    await stream_portfolio(ws, portfolio, state.cache, state.fx, claims.expires_at)

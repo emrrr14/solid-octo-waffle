@@ -27,10 +27,31 @@ bridge would be in the way and Swift/SwiftUI would win.
 | Layer | Language | Why |
 |---|---|---|
 | UI, navigation, state, formatting | TypeScript | the whole product surface |
-| Websocket + REST clients | TypeScript | plain I/O; nothing platform-specific |
+| Websocket + REST clients, session/token lifecycle | TypeScript | plain I/O; nothing platform-specific |
 | Session token storage | **Swift** (Keychain) | `AsyncStorage` is plaintext; only Security.framework gives hardware-backed, backup-excluded storage |
 | Order confirmation | **Swift** (LocalAuthentication) | Face ID has no JS equivalent |
 | Everything else | — | native modules are a permanent build cost; two justified ones is the whole list |
+
+## Tokens on the device
+
+`src/auth/session.ts` is the only owner of credentials, and the storage split
+follows the tokens' lifetimes: the **refresh token** goes to the iOS Keychain
+(long-lived, must survive a restart, device-only, excluded from backups), the
+**access token** stays in memory (15 minutes — worthless to persist, one less
+secret on disk).
+
+Refresh is **single-flight**. The server rotates refresh tokens and treats a
+replay as theft, revoking the family; parallel refreshes from the socket and two
+REST calls would therefore sign the user out mid-session. Concurrent callers
+share one in-flight request.
+
+Two recovery paths use it:
+
+* **REST 401** → one forced refresh, one retry, then the error surfaces.
+* **Websocket 4401** → the access token lapsed on a long-held socket. Force a
+  refresh, reconnect, and the user sees nothing. A second 4401 with no frame in
+  between means the session really is gone, and only then does the app return to
+  sign-in.
 
 ## Data flow
 

@@ -1,8 +1,8 @@
 """REST endpoints the iOS client calls.
 
 The websocket carries valuation; everything that is a *decision* - the proposed
-allocation, the macro events behind it, the confirmation - goes over REST, because
-each is a request/response with an audit trail, not a stream.
+allocation, the macro events behind it, the confirmation - goes over REST,
+because each is a request/response with an audit trail, not a stream.
 
 Response models are the server half of the contract in `mobile/src/types.ts`.
 Keep them in step: a field renamed here and not there is a blank screen on a
@@ -11,16 +11,19 @@ phone, not a compile error.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Annotated, Protocol
+from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
-from app.rebalance.engine import RebalanceDecision
+from app.api.auth import CurrentUser
+from app.db.repositories import AllocationRecord, DecisionRepository, PortfolioRepository
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", tags=["portfolio"])
+
+TRADING_DAYS = 252
 
 
 class AllocationRowOut(BaseModel):
@@ -35,6 +38,7 @@ class AllocationRowOut(BaseModel):
 
 class AllocationOut(BaseModel):
     portfolio_id: str
+    decision_id: str
     decided_at: datetime
     trigger_reason: str
     notional: float
@@ -67,102 +71,115 @@ class ConfirmOut(BaseModel):
     decision_id: str
 
 
-class DecisionStore(Protocol):
-    async def latest(self, portfolio_id: str) -> RebalanceDecision | None: ...
-    async def macro_events(self, limit: int) -> list[MacroEventOut]: ...
-    async def mark_confirmed(self, portfolio_id: str, decision_id: str) -> bool: ...
-
-
-def to_allocation_out(
-    decision: RebalanceDecision,
-    notional: float,
-    base_currency: str,
-    names: dict[str, str],
-    classes: dict[str, str],
-    current_weights: dict[str, float],
-) -> AllocationOut:
-    allocation = decision.allocation
+def to_allocation_out(record: AllocationRecord) -> AllocationOut:
     return AllocationOut(
-        portfolio_id=decision.portfolio_id,
-        decided_at=decision.ts,
-        trigger_reason=decision.trigger_reason,
-        notional=notional,
-        base_currency=base_currency,
-        status=allocation.status,
-        applied=decision.applied,
-        note=decision.note,
+        portfolio_id=record.portfolio_id,
+        decision_id=record.decision_id,
+        decided_at=record.decided_at,
+        trigger_reason=record.trigger_reason,
+        notional=float(record.notional),
+        base_currency=record.base_currency,
+        status=record.status,
+        applied=record.applied,
+        note=record.note,
         # The client shows an annual figure; the model works in daily returns.
         # Converting here keeps that assumption in one place.
-        expected_return_annual=allocation.expected_return * 252,
-        risk_mad=allocation.risk_mad,
-        turnover=allocation.turnover,
-        binding_constraints=allocation.binding_constraints,
+        expected_return_annual=record.expected_return_daily * TRADING_DAYS,
+        risk_mad=record.risk_mad,
+        turnover=record.turnover,
+        binding_constraints=record.binding_constraints,
         rows=[
             AllocationRowOut(
-                symbol=symbol,
-                name=names.get(symbol, symbol),
-                asset_class=classes.get(symbol, "unclassified"),
-                current_weight=current_weights.get(symbol, 0.0),
-                target_weight=weight,
-                target_amount=float(allocation.amounts[symbol]),
-                order_amount=float(decision.orders.get(symbol, 0)),
+                symbol=row.symbol,
+                name=row.name,
+                asset_class=row.asset_class,
+                current_weight=row.current_weight,
+                target_weight=row.target_weight,
+                target_amount=row.target_amount,
+                order_amount=row.order_amount,
             )
-            for symbol, weight in allocation.weights.items()
+            for row in record.rows
         ],
     )
 
 
-def _store(request: Request) -> DecisionStore:
-    store = getattr(request.app.state, "decisions", None)
-    if store is None:
-        # Explicit 503 rather than a 500 traceback: the app is running, this
-        # dependency is not wired yet, and the client should retry later.
+def _decisions(request: Request) -> DecisionRepository:
+    repo = getattr(request.app.state, "decisions", None)
+    if repo is None:
+        # Explicit 503 rather than a 500 traceback: the app is up, this
+        # dependency is not wired, and the client should retry later.
         raise HTTPException(status_code=503, detail="Decision store is not configured")
-    return store
+    return repo
+
+
+def _portfolios(request: Request) -> PortfolioRepository:
+    repo = getattr(request.app.state, "portfolios", None)
+    if repo is None:
+        raise HTTPException(status_code=503, detail="Portfolio store is not configured")
+    return repo
 
 
 @router.get("/portfolios/{portfolio_id}/allocation", response_model=AllocationOut)
 async def get_allocation(
     request: Request,
+    user_id: CurrentUser,
     portfolio_id: Annotated[str, Path()],
 ) -> AllocationOut:
     """The most recent proposal for this portfolio."""
-    decision = await _store(request).latest(portfolio_id)
-    if decision is None:
+    record = await _decisions(request).latest(portfolio_id, user_id=user_id)
+    if record is None:
+        # Same 404 whether the portfolio belongs to someone else or has no
+        # decision yet: a distinguishable response leaks which ids exist.
         raise HTTPException(status_code=404, detail="No allocation decision yet")
-    meta = request.app.state.portfolio_meta[portfolio_id]
-    return to_allocation_out(
-        decision,
-        notional=meta["notional"],
-        base_currency=meta["base_currency"],
-        names=meta["names"],
-        classes=meta["classes"],
-        current_weights=meta["current_weights"],
-    )
+    return to_allocation_out(record)
 
 
 @router.get("/macro/events", response_model=list[MacroEventOut])
-async def get_macro_events(request: Request, limit: int = 20) -> list[MacroEventOut]:
-    return await _store(request).macro_events(min(limit, 100))
+async def get_macro_events(
+    request: Request,
+    user_id: CurrentUser,
+    limit: int = 20,
+) -> list[MacroEventOut]:
+    rows = await _decisions(request).macro_events(min(max(limit, 1), 100))
+    return [
+        MacroEventOut(
+            id=row.id,
+            series=row.series,
+            kind=row.kind,
+            observed_on=row.observed_on.isoformat(),
+            previous_value=row.previous_value,
+            new_value=row.new_value,
+            change_bps=row.change_bps,
+            surprise_bps=row.surprise_bps,
+            triggered_rebalance=row.triggered_rebalance,
+            note=row.note,
+        )
+        for row in rows
+    ]
 
 
 @router.post("/portfolios/{portfolio_id}/rebalance/confirm", response_model=ConfirmOut)
 async def confirm_rebalance(
     request: Request,
+    user_id: CurrentUser,
     portfolio_id: Annotated[str, Path()],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ConfirmOut:
     """Accept a proposal and release its orders.
 
-    The client's `Idempotency-Key` is the decision id. Replaying it must return
-    the original outcome rather than placing a second set of orders - a double
-    tap on a train with one bar of signal is the normal case, not the edge case.
+    The client's `Idempotency-Key` is the decision id.  Replaying it returns the
+    original outcome rather than placing a second set of orders - a double tap
+    on a train with one bar of signal is the normal case, not the edge case.
     """
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
-    log.info(
-        "confirm requested: portfolio=%s decision=%s at %s",
-        portfolio_id, idempotency_key, datetime.now(timezone.utc).isoformat(),
-    )
-    accepted = await _store(request).mark_confirmed(portfolio_id, idempotency_key)
-    return ConfirmOut(accepted=accepted, decision_id=idempotency_key)
+
+    if await _portfolios(request).get(portfolio_id, user_id=user_id) is None:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+
+    accepted = await _decisions(request).mark_confirmed(portfolio_id, idempotency_key)
+    if not accepted:
+        raise HTTPException(status_code=404, detail="Unknown decision")
+
+    log.info("confirmed: portfolio=%s decision=%s user=%s", portfolio_id, idempotency_key, user_id)
+    return ConfirmOut(accepted=True, decision_id=idempotency_key)

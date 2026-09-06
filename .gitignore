@@ -10,3 +10,5 @@ mobile/node_modules/
 mobile/ios/build/
 mobile/ios/Pods/
 *.log
+demo.db
+*.db

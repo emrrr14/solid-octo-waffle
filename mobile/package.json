@@ -37,6 +37,9 @@
     "testEnvironment": "node",
     "testMatch": [
       "**/__tests__/**/*.test.ts"
-    ]
+    ],
+    "moduleNameMapper": {
+      "^react-native$": "<rootDir>/test-utils/react-native.ts"
+    }
   }
 }

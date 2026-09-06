@@ -10,9 +10,12 @@
  *   means reconnect, whatever the socket says its state is.
  * - **Reconnect storms are self-inflicted outages.**  Exponential backoff with
  *   jitter, so 50k phones coming out of a tunnel don't arrive together.
- * - **Auth failures are terminal.**  A 4401 must stop the loop and surface to
- *   the UI; retrying a rejected token forever is how you get rate-limited by
- *   your own gateway.
+ * - **An expired token is not a dead session.**  The server closes with 4401
+ *   when the access token lapses mid-stream (it will, on a socket held open for
+ *   hours).  One forced refresh and a reconnect fixes that invisibly; a second
+ *   4401 without an intervening frame means the session really is gone, and
+ *   only then do we stop and surface it.  Retrying a rejected token forever is
+ *   how you get rate-limited by your own gateway.
  *
  * The WebSocket constructor and timers are injected so the whole state machine
  * runs under Jest in Node with no React Native runtime.
@@ -34,7 +37,8 @@ export type SocketFactory = (url: string, protocols?: string[]) => SocketLike;
 export interface PortfolioSocketOptions {
   url: string;
   portfolioId: string;
-  getToken: () => Promise<string | null>;
+  /** `force` asks the session to refresh before answering (after a 4401). */
+  getToken: (force?: boolean) => Promise<string | null>;
   onFrame: (frame: ServerFrame) => void;
   onStatus: (status: 'connecting' | 'live' | 'reconnecting' | 'offline') => void;
   onFatal?: (reason: string) => void;
@@ -48,12 +52,15 @@ export interface PortfolioSocketOptions {
   clearTimeoutFn?: (handle: unknown) => void;
 }
 
-/** Terminal close codes: the server is telling us not to come back. */
+/** Close codes the server uses deliberately. 4401 is recoverable once. */
+const UNAUTHORIZED = 4401;
+
 const FATAL_CODES: Record<number, string> = {
-  4401: 'Session expired - please sign in again',
   4403: 'This portfolio is not available on your account',
   4404: 'Portfolio not found',
 };
+
+const SESSION_EXPIRED = 'Session expired - please sign in again';
 
 export function backoffDelay(
   attempt: number,
@@ -75,6 +82,8 @@ export class PortfolioSocket {
 
   private socket: SocketLike | null = null;
   private attempt = 0;
+  /** 4401s since the last frame we successfully received. */
+  private reauthAttempts = 0;
   private closedByUs = false;
   private reconnectHandle: unknown = null;
   private watchdogHandle: unknown = null;
@@ -97,11 +106,12 @@ export class PortfolioSocket {
       ((url, protocols) => new WebSocket(url, protocols) as unknown as SocketLike);
   }
 
-  async connect(): Promise<void> {
+  async connect(force = false): Promise<void> {
     this.closedByUs = false;
-    const token = await this.opts.getToken();
+    const token = await this.opts.getToken(force);
     if (!token) {
-      this.fail('Not signed in');
+      // A forced fetch returning nothing means the refresh token is gone too.
+      this.fail(force ? SESSION_EXPIRED : 'Not signed in');
       return;
     }
 
@@ -121,6 +131,8 @@ export class PortfolioSocket {
 
     socket.onmessage = (event) => {
       this.armWatchdog();
+      // A frame proves the credential worked; the next 4401 is a fresh problem.
+      this.reauthAttempts = 0;
       let frame: ServerFrame;
       try {
         frame = JSON.parse(event.data) as ServerFrame;
@@ -140,11 +152,18 @@ export class PortfolioSocket {
       this.clearWatchdog();
       this.socket = null;
       if (this.closedByUs) return;
+
       const fatal = FATAL_CODES[event.code];
       if (fatal) {
         this.fail(fatal);
         return;
       }
+
+      if (event.code === UNAUTHORIZED) {
+        void this.reauthenticate();
+        return;
+      }
+
       this.scheduleReconnect();
     };
   }
@@ -160,7 +179,25 @@ export class PortfolioSocket {
     this.socket?.close(1000, 'client closed');
     this.socket = null;
     this.attempt = 0;
+    this.reauthAttempts = 0;
     this.opts.onStatus('offline');
+  }
+
+  /**
+   * The access token lapsed mid-stream. Force a refresh and reconnect once; if
+   * that fails, or a second 4401 arrives with no frame in between, the session
+   * is genuinely gone and the user has to sign in.
+   */
+  private async reauthenticate(): Promise<void> {
+    this.reauthAttempts += 1;
+    if (this.reauthAttempts > 1) {
+      this.fail(SESSION_EXPIRED);
+      return;
+    }
+    this.opts.onStatus('reconnecting');
+    // connect(true) does the forced refresh itself - fetching the token here as
+    // well would rotate it twice and hand the second socket a stale one.
+    await this.connect(true);
   }
 
   private scheduleReconnect(): void {

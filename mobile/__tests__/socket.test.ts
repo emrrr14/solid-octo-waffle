@@ -160,13 +160,81 @@ describe('PortfolioSocket', () => {
     expect(sockets).toHaveLength(2);
   });
 
-  it('stops for good on an auth failure', async () => {
-    const {socket, sockets, clock, fatals} = build();
+  it('refreshes the token and reconnects after a 4401', async () => {
+    const forced: boolean[] = [];
+    const tokens = ['tok-1', 'tok-2'];
+    const {socket, sockets, fatals, statuses} = build({
+      getToken: async (force?: boolean) => {
+        forced.push(force === true);
+        return tokens.shift() ?? null;
+      },
+    });
+
+    await socket.connect();
+    sockets[0]!.onopen?.();
+    sockets[0]!.onclose?.({code: 4401}); // access token lapsed mid-stream
+    await flush();
+
+    expect(forced).toEqual([false, true]); // second call forced a refresh
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1]!.protocols).toEqual(['bearer', 'tok-2']);
+    expect(statuses).toContain('reconnecting');
+    expect(fatals).toEqual([]); // the user never saw this happen
+  });
+
+  it('gives up when the refresh itself fails', async () => {
+    const {socket, sockets, fatals} = build({
+      getToken: async (force?: boolean) => (force ? null : 'tok-1'),
+    });
+
     await socket.connect();
     sockets[0]!.onopen?.();
     sockets[0]!.onclose?.({code: 4401});
+    await flush();
 
     expect(fatals).toEqual(['Session expired - please sign in again']);
+    expect(sockets).toHaveLength(1);
+  });
+
+  it('gives up on a second 4401 with no frame in between', async () => {
+    const {socket, sockets, fatals} = build({getToken: async () => 'tok'});
+
+    await socket.connect();
+    sockets[0]!.onopen?.();
+    sockets[0]!.onclose?.({code: 4401});
+    await flush();
+    sockets[1]!.onopen?.();
+    sockets[1]!.onclose?.({code: 4401}); // refreshed token rejected too
+    await flush();
+
+    expect(fatals).toEqual(['Session expired - please sign in again']);
+    expect(sockets).toHaveLength(2);
+  });
+
+  it('a delivered frame clears the reauth budget', async () => {
+    const {socket, sockets, fatals} = build({getToken: async () => 'tok'});
+
+    await socket.connect();
+    sockets[0]!.onopen?.();
+    sockets[0]!.onclose?.({code: 4401});
+    await flush();
+
+    sockets[1]!.onopen?.();
+    sockets[1]!.onmessage?.({data: snapshotFrame}); // stream is healthy again
+    sockets[1]!.onclose?.({code: 4401});           // hours later, token lapses again
+    await flush();
+
+    expect(fatals).toEqual([]);
+    expect(sockets).toHaveLength(3);
+  });
+
+  it('stops for good on a forbidden portfolio', async () => {
+    const {socket, sockets, clock, fatals} = build();
+    await socket.connect();
+    sockets[0]!.onopen?.();
+    sockets[0]!.onclose?.({code: 4404});
+
+    expect(fatals).toEqual(['Portfolio not found']);
     clock.advance(60_000);
     await flush();
     expect(sockets).toHaveLength(1); // never retried
