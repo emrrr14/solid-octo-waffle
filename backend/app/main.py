@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from redis.asyncio import Redis
 
+from app.api import routes as rest_api
 from app.api import ws as ws_api
 from app.market.cache import LastPriceCache
 from app.market.valuation import FxConverter
@@ -43,6 +44,7 @@ class PortfolioRepository:
 
 app = FastAPI(title="Robo-Advisor API", lifespan=lifespan)
 app.include_router(ws_api.router)
+app.include_router(rest_api.router)
 
 
 @app.get("/health")

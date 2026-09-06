@@ -6,3 +6,7 @@ venv/
 .env
 .DS_Store
 node_modules/
+mobile/node_modules/
+mobile/ios/build/
+mobile/ios/Pods/
+*.log
