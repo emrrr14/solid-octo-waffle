@@ -12,9 +12,12 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
+import numpy as np
+
 from app.db import models
+from app.db.migrate import upgrade_to_head
 from app.db.repositories import UserRepository
-from app.db.session import create_all, create_engine, create_session_factory
+from app.db.session import create_engine, create_session_factory
 from app.settings import load_settings
 
 EMAIL = "demo@roboadvisor.example"
@@ -47,10 +50,94 @@ AMOUNTS = {"AFA": "30.65", "IPB": "44.35", "TTE": "125.00", "GLD": "50.00", "MMK
 ORDERS = {"AFA": "-94.35", "IPB": "-55.65", "TTE": "25.00", "MMK": "125.00"}
 
 
+# What the customer agreed the optimiser may do with the 500 TL sleeve.
+MANDATE = {
+    "universe": ["AFA", "IPB", "TTE", "GLD", "MMK", "EUB"],
+    "class_upper": {"equity_tr": 0.35, "equity_global": 0.35, "gold": 0.25, "fx": 0.30},
+    "class_lower": {"money_market": 0.05, "bond_tr": 0.10},
+    "instrument_upper": {code: 0.35 for code in ["AFA", "IPB", "TTE", "GLD", "MMK", "EUB"]},
+    "turnover_cap": 0.60,
+    "min_return": 0.00045,
+    "objective": "min_risk",
+}
+
+# Synthetic history so the worker has something to estimate against. The funds
+# are generated *with* macro sensitivities and the matching FOMC events are
+# seeded alongside, so the demo exercises the real path: betas are estimated
+# from the panel rather than assumed. Replace with a real backfill
+# (`TefasClient.history` over two years) before trusting any number here.
+FUND_PARAMS = {
+    # code: (daily drift, vol, beta to a 1bp FED surprise, beta to d_log_usdtry)
+    "AFA": (0.00060, 0.016, -0.00022, -0.35),
+    "IPB": (0.00070, 0.014, -0.00040, +0.80),
+    "TTE": (0.00035, 0.004, -0.00008, -0.10),
+    "GLD": (0.00050, 0.011, -0.00030, +0.90),
+    "MMK": (0.00018, 0.0004, +0.00001, +0.00),
+    "EUB": (0.00040, 0.006, -0.00015, +0.95),
+}
+
+
+def business_days(days: int) -> list[date]:
+    start = date.today() - timedelta(days=days)
+    return [d for i in range(days) if (d := start + timedelta(days=i)).weekday() < 5]
+
+
+def synthetic_history(days: int = 600, seed: int = 11):
+    """Return (fund NAV rows, USDTRY closes, macro event rows), mutually consistent."""
+    rng = np.random.default_rng(seed)
+    calendar = business_days(days)
+    n = len(calendar)
+
+    # An FOMC-like schedule: eight meetings a year, most of them fully priced.
+    surprises = np.zeros(n)
+    meeting_idx = sorted(rng.choice(range(20, n), size=max(2, n // 32), replace=False))
+    for i in meeting_idx:
+        surprises[i] = float(rng.choice([-25.0, -12.5, 0.0, 0.0, 12.5, 25.0]))
+
+    fx_shock = 0.0004 * surprises + rng.normal(0, 0.005, n)
+
+    fx_rows, rate = [], 30.0
+    for day, shock in zip(calendar, fx_shock):
+        rate *= float(np.exp(shock))
+        fx_rows.append(
+            models.DailyClose(symbol="USDTRY", close_date=day, close=Decimal(f"{rate:.6f}"), currency="TRY")
+        )
+
+    nav_rows = []
+    for code, (drift, vol, beta_fed, beta_fx) in FUND_PARAMS.items():
+        nav = 1.0
+        shocks = drift + beta_fed * surprises + beta_fx * fx_shock + rng.normal(0, vol, n)
+        for day, shock in zip(calendar, shocks):
+            nav *= float(np.exp(shock))
+            nav_rows.append(
+                models.FundNav(fund_code=code, nav_date=day, nav=Decimal(f"{nav:.6f}"), fund_type="YAT")
+            )
+
+    level = 5.50
+    event_rows = []
+    for i in meeting_idx:
+        if surprises[i] == 0.0:
+            continue  # a fully-priced meeting leaves no trace in the model
+        change = float(np.sign(surprises[i]) * 25.0)
+        previous, level = level, round(level + change / 100.0, 2)
+        event_rows.append(
+            models.MacroEventRow(
+                series="DFEDTARU",
+                kind="rate_cut" if change < 0 else "rate_hike",
+                observed_on=calendar[i],
+                previous_value=previous,
+                new_value=level,
+                change_bps=change,
+                surprise_bps=float(surprises[i]),
+                triggered_rebalance=abs(surprises[i]) >= 10.0,
+            )
+        )
+    return nav_rows, fx_rows, event_rows
+
+
 async def main() -> None:
     settings = load_settings()
     engine = create_engine(settings.database_url)
-    await create_all(engine)
     factory = create_session_factory(engine)
 
     async with factory() as session:
@@ -68,6 +155,7 @@ async def main() -> None:
             models.Portfolio(
                 id=PORTFOLIO_ID, user_id=user.id, base_currency="TRY",
                 cash=Decimal("250.00"), notional=Decimal("500.00"),
+                mandate=MANDATE,
             )
         )
         for symbol, qty, cost in POSITIONS:
@@ -94,25 +182,21 @@ async def main() -> None:
             )
         )
 
-        for series, kind, day, prev, new, change, surprise, fired, note in [
-            ("DFEDTARU", "rate_cut", date(2026, 9, 5), 5.50, 5.25, -25.0, -25.0, True, ""),
-            ("DFEDTARU", "rate_cut", date(2026, 7, 30), 5.75, 5.50, -25.0, 0.0, False,
-             "Piyasada fiyatlanmıştı, işlem yapılmadı"),
-            ("TR_CPI_YOY", "inflation_print", date(2026, 7, 3), 38.1, 35.4, -270.0, -80.0, True, ""),
-        ]:
-            session.add(
-                models.MacroEventRow(
-                    series=series, kind=kind, observed_on=day, previous_value=prev,
-                    new_value=new, change_bps=change, surprise_bps=surprise,
-                    triggered_rebalance=fired, note=note,
-                )
-            )
+        navs, fx, events = synthetic_history()
+        session.add_all(navs)
+        session.add_all(fx)
+        session.add_all(events)
 
         await session.commit()
+
+    print(f"seeded {len(navs)} NAV rows, {len(fx)} FX closes, {len(events)} macro events")
 
     await engine.dispose()
     print(f"seeded: {EMAIL} / {PASSWORD}  portfolio={PORTFOLIO_ID}")
 
 
 if __name__ == "__main__":
+    # Migrations run their own event loop (see migrations/env.py), so they go
+    # before asyncio.run rather than inside it.
+    upgrade_to_head(load_settings().database_url)
     asyncio.run(main())

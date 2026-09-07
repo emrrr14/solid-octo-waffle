@@ -218,6 +218,41 @@ class PortfolioRepository:
                 ],
             )
 
+    async def load_mandate(self, portfolio_id: str) -> tuple[dict, dict[str, str], Decimal, str] | None:
+        """Return ``(mandate_json, class_of, notional, base_currency)``.
+
+        ``class_of`` is read from the instruments table rather than the mandate
+        JSON: asset class is a property of the fund, and copying it into every
+        customer's mandate is how the same fund ends up in two classes.
+        """
+        async with self._factory() as session:
+            row = (
+                await session.execute(
+                    select(models.Portfolio).where(models.Portfolio.id == portfolio_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+
+            universe = list((row.mandate or {}).get("universe", []))
+            instruments = (
+                await session.execute(
+                    select(models.Instrument.symbol, models.Instrument.asset_class).where(
+                        models.Instrument.symbol.in_(universe)
+                    )
+                )
+            ).all()
+            return (
+                dict(row.mandate or {}),
+                {symbol: asset_class for symbol, asset_class in instruments},
+                Decimal(row.notional),
+                row.base_currency,
+            )
+
+    async def all_ids(self) -> list[str]:
+        async with self._factory() as session:
+            return list((await session.execute(select(models.Portfolio.id))).scalars())
+
     async def symbols_for_streaming(self) -> list[str]:
         """The union of streamed symbols - what the gateway subscribes to."""
         async with self._factory() as session:
@@ -318,6 +353,71 @@ class DecisionRepository:
                     for symbol in symbols
                 ],
             )
+
+    async def current_weights(self, portfolio_id: str, universe: list[str]) -> dict[str, float]:
+        """Where the money is now.
+
+        Preference order, and the reason for it:
+        1. the previous decision's target weights - what the book was last set to;
+        2. failing that, positions valued at the latest NAV - the truth when a
+           customer has traded outside the advisor;
+        3. failing that, zeros - genuinely fresh money, so every constraint but
+           turnover applies from a standing start.
+        """
+        async with self._factory() as session:
+            previous = (
+                await session.execute(
+                    select(models.RebalanceDecisionRow.weights_after)
+                    .where(models.RebalanceDecisionRow.portfolio_id == portfolio_id)
+                    .order_by(models.RebalanceDecisionRow.decided_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if previous:
+                return {symbol: float(previous.get(symbol, 0.0)) for symbol in universe}
+
+            positions = (
+                await session.execute(
+                    select(models.Position.symbol, models.Position.quantity).where(
+                        models.Position.portfolio_id == portfolio_id,
+                        models.Position.symbol.in_(universe),
+                    )
+                )
+            ).all()
+            if not positions:
+                return {symbol: 0.0 for symbol in universe}
+
+            values: dict[str, float] = {}
+            for symbol, quantity in positions:
+                nav = (
+                    await session.execute(
+                        select(models.FundNav.nav)
+                        .where(models.FundNav.fund_code == symbol)
+                        .order_by(models.FundNav.nav_date.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if nav is not None:
+                    values[symbol] = float(quantity) * float(nav)
+
+            total = sum(values.values())
+            if total <= 0:
+                return {symbol: 0.0 for symbol in universe}
+            return {symbol: values.get(symbol, 0.0) / total for symbol in universe}
+
+    async def upsert_navs(self, rows: list[dict]) -> int:
+        """Idempotent NAV write.
+
+        TEFAS publishes late and revises; the composite primary key plus merge
+        means re-running yesterday's ingest is a no-op rather than a duplicate.
+        """
+        if not rows:
+            return 0
+        async with self._factory() as session:
+            for row in rows:
+                await session.merge(models.FundNav(**row))
+            await session.commit()
+            return len(rows)
 
     async def mark_confirmed(self, portfolio_id: str, decision_id: str) -> bool:
         """Idempotent: confirming an already-confirmed decision reports success

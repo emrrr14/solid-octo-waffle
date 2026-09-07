@@ -111,12 +111,14 @@ is the record you have to be able to produce.
                     └──────────────┬───────────────┘               └──────────┘
                                    │
                     ┌──────────────▼───────────────────────────────┐
-                    │ worker                                        │
-                    │  • TEFAS/BES EOD ingest      (20:00 TRT)      │
-                    │  • factor re-fit + ANOVA     (nightly)        │
-                    │  • FRED poll → trigger       (every 15 min)   │
-                    │  • rebalance LP → orders     (on trigger)     │
+                    │ worker  (app/worker/, Redis-locked)           │
+                    │  • FRED poll → macro event   (every 15 min)   │
+                    │  • TEFAS/BES EOD ingest      (20:30 TRT)      │
+                    │  • on trigger: panel → HAC-OLS → LP → orders  │
+                    │    → persisted decision                       │
                     └───────────────────────────────────────────────┘
+
+Schedules, locking and deploy order: [`OPERATIONS.md`](OPERATIONS.md).
 ```
 
 **One upstream connection per venue, ever.** Vendors price and cap on concurrent

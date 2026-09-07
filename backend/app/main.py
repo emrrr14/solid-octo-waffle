@@ -12,6 +12,7 @@ makes the wiring visible in one place and lets tests substitute any of it.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -22,7 +23,8 @@ from app.api import auth as auth_api
 from app.api import routes as rest_api
 from app.api import ws as ws_api
 from app.db.repositories import DecisionRepository, PortfolioRepository
-from app.db.session import create_all, create_engine, create_session_factory
+from app.db.migrate import upgrade_to_head
+from app.db.session import create_engine, create_session_factory
 from app.market.cache import LastPriceCache
 from app.market.valuation import FxConverter
 from app.settings import load_settings
@@ -38,9 +40,11 @@ async def lifespan(app: FastAPI):
     session_factory = create_session_factory(engine)
 
     if settings.dev_mode:
-        # Production schema changes go through Alembic so they are reviewed like
-        # any other code; create_all exists for the dev database only.
-        await create_all(engine)
+        # Same migrations as production, just applied automatically. In
+        # production `alembic upgrade head` is a deploy step, so a failed
+        # migration stops the rollout instead of a pod booting against a schema
+        # it does not understand.
+        await asyncio.to_thread(upgrade_to_head, settings.database_url)
 
     redis = Redis.from_url(settings.redis_url)
 

@@ -146,10 +146,25 @@ def solve_allocation(
             rhs.append(sign * w0[i])
             labels.append(f"turnover[{symbols[i]}]{'+' if sign > 0 else '-'}")
 
+    # Becoming fully invested from a book that holds `w0` requires at least
+    # |1 - sum(w0)| of trading, so a tighter budget than that is arithmetically
+    # unsatisfiable - most often for fresh money, where w0 is all zeros and the
+    # LP would otherwise come back infeasible for a mandate that is perfectly
+    # sensible. Widen to the floor and say so, rather than refusing to invest.
+    min_turnover = abs(1.0 - float(w0.sum()))
+    effective_cap = constraints.turnover_cap
+    if effective_cap < min_turnover - 1e-12:
+        log.info(
+            "turnover cap %.2f is below the %.2f needed to reach a fully invested "
+            "book from the current holdings; using %.2f",
+            constraints.turnover_cap, min_turnover, min_turnover,
+        )
+        effective_cap = min_turnover
+
     row = np.zeros(n_var)                   # sum t_i <= cap
     row[sl_t] = 1.0
     rows.append(row)
-    rhs.append(constraints.turnover_cap)
+    rhs.append(effective_cap)
     labels.append("turnover_budget")
 
     classes = sorted({constraints.class_of.get(s, "unclassified") for s in symbols})

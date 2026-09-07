@@ -93,6 +93,11 @@ class Portfolio(Base):
     base_currency: Mapped[str] = mapped_column(String(3), default="TRY")
     cash: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
     notional: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
+    # The investment mandate: class bands, turnover cap, return floor, objective.
+    # Per-portfolio and versioned with the row, because it is the thing a
+    # customer agreed to - not a global constant the next deploy can change
+    # under them.
+    mandate: Mapped[dict] = mapped_column(JSON, default=dict)
 
     user: Mapped[User] = relationship(back_populates="portfolios")
     positions: Mapped[list["Position"]] = relationship(
@@ -126,6 +131,23 @@ class FundNav(Base):
     fund_type: Mapped[str] = mapped_column(String(3))   # YAT | EMK
     shares: Mapped[Decimal | None] = mapped_column(Numeric(24, 4), default=None)
     investors: Mapped[int | None] = mapped_column(Integer, default=None)
+
+
+class DailyClose(Base):
+    """End-of-day closes for streamed instruments and FX.
+
+    The tick hypertable is where intraday lives; this is the daily series the
+    factor model regresses on.  Separate because they have different lifetimes
+    (ticks are dropped after 90 days, closes are kept forever) and different
+    write patterns (batched firehose vs one row per instrument per day).
+    """
+
+    __tablename__ = "daily_close"
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    close_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    close: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    currency: Mapped[str] = mapped_column(String(3), default="TRY")
 
 
 class MacroEventRow(Base):
