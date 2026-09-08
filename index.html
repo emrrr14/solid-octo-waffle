@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Punchline Press</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&family=Fraunces:opsz,wght@9..144,600..900&family=Karla:wght@400..700&display=swap">
+<style>
+:root{
+  --ground:#EFE9F2;
+  --panel:#FBF9FC;
+  --panel-2:#F4EFF7;
+  --ink:#241B31;
+  --ink-soft:#6C5F7C;
+  --line:#DCD2E4;
+  --accent:#D42A54;
+  --accent-ink:#FFFFFF;
+  --paper:#FCF8F0;
+  --paper-shade:#F1E9DA;
+  --paper-edge:#E0D3BC;
+  --hand:#2C3E6B;
+  --rule:#CBD8E6;
+  --shadow:0 18px 40px -24px rgba(36,27,49,.55);
+  --c1:#D42A54; --c2:#E1701A; --c3:#B8860B; --c4:#0E9E7A; --c5:#1D7FC4; --c6:#7B45D6;
+  --lh:32px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#17111F;
+    --panel:#221A2E;
+    --panel-2:#1C1527;
+    --ink:#EFE7F5;
+    --ink-soft:#A395B4;
+    --line:#382C4A;
+    --accent:#FF6B8A;
+    --accent-ink:#25101A;
+    --shadow:0 24px 50px -26px rgba(0,0,0,.85);
+    --c1:#FF4D6D; --c2:#FF9F1C; --c3:#FFD23F; --c4:#3FD9A0; --c5:#4CC9F0; --c6:#B47CFF;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#17111F;
+  --panel:#221A2E;
+  --panel-2:#1C1527;
+  --ink:#EFE7F5;
+  --ink-soft:#A395B4;
+  --line:#382C4A;
+  --accent:#FF6B8A;
+  --accent-ink:#25101A;
+  --shadow:0 24px 50px -26px rgba(0,0,0,.85);
+  --c1:#FF4D6D; --c2:#FF9F1C; --c3:#FFD23F; --c4:#3FD9A0; --c5:#4CC9F0; --c6:#B47CFF;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"Karla","Helvetica Neue",Arial,sans-serif;
+  font-size:16px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.desk{max-width:1180px;margin:0 auto;padding:40px 24px 64px}
+
+/* ---------- masthead ---------- */
+.masthead{position:relative;padding-bottom:28px;border-bottom:1px solid var(--line);margin-bottom:32px}
+.eyebrow{
+  margin:0 0 10px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink-soft);font-weight:700;
+}
+h1.festive{
+  font-family:"Fraunces","Georgia",serif;
+  font-weight:900;
+  font-optical-sizing:auto;
+  font-size:clamp(2.6rem,7.5vw,5rem);
+  line-height:1.02;
+  letter-spacing:-.02em;
+  margin:0;
+  text-wrap:balance;
+}
+h1.festive .ltr{transition:color 60ms linear}
+.lede{margin:14px 0 0;max-width:62ch;font-size:1.05rem;color:var(--ink-soft)}
+.lede b{color:var(--ink);font-weight:700}
+.party-toggle{
+  position:absolute;top:0;right:0;
+  font:inherit;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ink-soft);background:transparent;border:1px solid var(--line);
+  border-radius:999px;padding:7px 14px;cursor:pointer;
+}
+.party-toggle:hover{color:var(--ink);border-color:var(--ink-soft)}
+
+/* ---------- workbench ---------- */
+.workbench{display:grid;grid-template-columns:minmax(290px,350px) minmax(0,1fr);gap:36px;align-items:start}
+@media (max-width:900px){.workbench{grid-template-columns:1fr;gap:28px}}
+
+/* ---------- composer ---------- */
+.composer{
+  position:sticky;top:24px;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:22px 22px 24px;box-shadow:var(--shadow);
+}
+@media (max-width:900px){.composer{position:static}}
+.composer h2{
+  font-family:"Fraunces",Georgia,serif;font-weight:800;font-size:1.35rem;margin:0 0 4px;letter-spacing:-.01em;
+}
+.composer .hint{margin:0 0 18px;font-size:.86rem;color:var(--ink-soft)}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.field label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
+.field input{
+  font:inherit;color:var(--ink);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:7px;padding:11px 12px;
+}
+.field input::placeholder{color:var(--ink-soft);opacity:.7}
+.field input:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.field.bad input{border-color:var(--accent)}
+.err{font-size:.8rem;color:var(--accent);min-height:0}
+.field .err:empty{display:none}
+.actions{display:flex;gap:10px;align-items:center;margin-top:20px;flex-wrap:wrap}
+.print{
+  font:inherit;font-weight:700;letter-spacing:.02em;
+  background:var(--accent);color:var(--accent-ink);border:0;border-radius:7px;
+  padding:12px 20px;cursor:pointer;
+}
+.print:hover{filter:brightness(1.06)}
+.print:active{transform:translateY(1px)}
+.linky{
+  font:inherit;font-size:.86rem;background:none;border:0;padding:0;cursor:pointer;
+  color:var(--ink-soft);text-decoration:underline;text-underline-offset:3px;
+}
+.linky:hover{color:var(--ink)}
+.specsheet{margin-top:22px;padding-top:16px;border-top:1px dashed var(--line);font-size:.78rem;color:var(--ink-soft)}
+.specsheet dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0}
+.specsheet dt{font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:.68rem;padding-top:2px}
+.specsheet dd{margin:0;font-variant-numeric:tabular-nums}
+
+/* ---------- stack ---------- */
+.stack-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:16px}
+.stack-head h2{font-family:"Fraunces",Georgia,serif;font-weight:800;font-size:1.2rem;margin:0}
+.tally{font-size:.8rem;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+.stack{display:flex;flex-direction:column;gap:26px}
+
+/* ---------- the card ---------- */
+.card{position:relative}
+.card:nth-child(even) .spread{transform:rotate(.4deg)}
+.card:nth-child(odd) .spread{transform:rotate(-.35deg)}
+.spread{
+  display:grid;grid-template-columns:.78fr 1fr;
+  background:var(--paper);
+  border-radius:3px;
+  box-shadow:0 1px 0 var(--paper-edge),0 20px 40px -22px rgba(20,10,30,.6);
+  overflow:hidden;
+  min-height:290px;
+}
+@media (max-width:620px){.spread{grid-template-columns:1fr}}
+.card.fresh .spread{animation:drop .5s cubic-bezier(.2,.8,.3,1)}
+@keyframes drop{from{opacity:0;transform:translateY(-10px) rotate(0deg)}}
+
+.leaf-left{
+  position:relative;padding:26px 24px;
+  background:
+    radial-gradient(circle at 16% 20%,#FF4D6D 0 7px,transparent 7.5px),
+    radial-gradient(circle at 80% 12%,#1D7FC4 0 5px,transparent 5.5px),
+    radial-gradient(circle at 66% 30%,#E1701A 0 6px,transparent 6.5px),
+    radial-gradient(circle at 26% 44%,#7B45D6 0 4px,transparent 4.5px),
+    radial-gradient(circle at 88% 48%,#B8860B 0 5px,transparent 5.5px),
+    radial-gradient(circle at 34% 76%,#0E9E7A 0 6px,transparent 6.5px),
+    radial-gradient(circle at 74% 84%,#FF4D6D 0 4px,transparent 4.5px),
+    radial-gradient(circle at 10% 88%,#1D7FC4 0 5px,transparent 5.5px),
+    linear-gradient(105deg,var(--paper-shade),var(--paper) 70%);
+  border-right:1px solid var(--paper-edge);
+  display:flex;flex-direction:column;justify-content:space-between;
+}
+@media (max-width:620px){.leaf-left{border-right:0;border-bottom:1px solid var(--paper-edge)}}
+.stamp{font-family:"Karla",sans-serif;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#8A7A5F;font-weight:700}
+.age-block{text-align:center;padding:8px 0}
+.age-num{
+  display:block;font-family:"Fraunces",Georgia,serif;font-weight:900;
+  font-size:clamp(3.4rem,9vw,5.2rem);line-height:.9;color:var(--hand);
+  font-variant-numeric:tabular-nums;letter-spacing:-.03em;
+}
+.age-word{display:block;font-family:"Caveat",cursive;font-size:1.4rem;color:#8A7A5F;margin-top:4px}
+.est{font-family:"Karla",sans-serif;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#8A7A5F;font-weight:700}
+
+.leaf-right{
+  padding:24px 26px 34px;
+  background-image:repeating-linear-gradient(to bottom,transparent 0 31px,var(--rule) 31px 32px);
+  background-position:0 32px;
+  color:var(--hand);
+}
+.greeting{
+  font-family:"Caveat",cursive;font-weight:700;font-size:2.1rem;line-height:var(--lh);
+  margin:0 0 var(--lh);
+}
+.message{font-family:"Caveat",cursive;font-size:1.5rem;line-height:var(--lh);margin:0}
+.message.swap{animation:reink .35s ease}
+@keyframes reink{from{opacity:0;transform:translateX(4px)}}
+.signoff{font-family:"Caveat",cursive;font-size:1.5rem;line-height:var(--lh);margin:var(--lh) 0 0;opacity:.9}
+.sig-line{display:block;height:var(--lh);border-bottom:1.5px dashed rgba(44,62,107,.35);max-width:220px}
+
+.card-tools{
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  margin-top:10px;padding:0 4px;
+}
+.tool{
+  font:inherit;font-size:.78rem;font-weight:700;letter-spacing:.04em;
+  background:transparent;color:var(--ink-soft);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;cursor:pointer;
+}
+.tool:hover{color:var(--ink);border-color:var(--ink-soft)}
+.tool.newest{border-style:none;background:var(--accent);color:var(--accent-ink);cursor:default}
+.filed{margin-left:auto;font-size:.75rem;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+
+.empty{
+  border:1px dashed var(--line);border-radius:8px;padding:34px 26px;text-align:center;color:var(--ink-soft);
+}
+footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:.78rem;color:var(--ink-soft)}
+.toast{
+  position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(12px);
+  background:var(--ink);color:var(--ground);padding:10px 18px;border-radius:999px;
+  font-size:.85rem;font-weight:700;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="desk">
+
+  <header class="masthead">
+    <p class="eyebrow">Small-batch greetings &middot; Printed while you wait</p>
+    <h1 class="festive" id="festiveTitle">The Punchline Press</h1>
+    <p class="lede">Hand over a <b>name</b>, an <b>age</b> and a <b>hobby</b>. We'll write the inside of the card; you sign it and take the credit.</p>
+    <button class="party-toggle" id="partyToggle" aria-pressed="false">Pause the colours</button>
+  </header>
+
+  <main class="workbench">
+    <section class="composer" aria-labelledby="composer-title">
+      <h2 id="composer-title">Set the type</h2>
+      <p class="hint">Three details, one card. Reword it as often as you like.</p>
+      <form id="cardForm" novalidate>
+        <div class="field" id="f-name">
+          <label for="name">Birthday human</label>
+          <input id="name" name="name" type="text" autocomplete="off" placeholder="Dilara" value="Dilara">
+          <p class="err" aria-live="polite"></p>
+        </div>
+        <div class="field" id="f-age">
+          <label for="age">Candles</label>
+          <input id="age" name="age" type="number" min="1" max="130" inputmode="numeric" placeholder="30" value="30">
+          <p class="err" aria-live="polite"></p>
+        </div>
+        <div class="field" id="f-hobby">
+          <label for="hobby">Hobby of choice</label>
+          <input id="hobby" name="hobby" type="text" autocomplete="off" placeholder="bouldering" value="bouldering">
+          <p class="err" aria-live="polite"></p>
+        </div>
+        <div class="actions">
+          <button class="print" type="submit">Print the card</button>
+          <button class="linky" type="button" id="surprise">Surprise me</button>
+        </div>
+      </form>
+      <div class="specsheet">
+        <dl>
+          <dt>Stock</dt><dd>270 gsm uncoated, deckled edge</dd>
+          <dt>Folded</dt><dd>148 &times; 105 mm</dd>
+          <dt>Ink</dt><dd>One colour, slightly over-inked</dd>
+        </dl>
+      </div>
+    </section>
+
+    <section class="stack-wrap" aria-labelledby="stack-title">
+      <div class="stack-head">
+        <h2 id="stack-title">Off the press</h2>
+        <p class="tally"><span id="tally">0 cards</span> printed &middot; newest on top</p>
+      </div>
+      <div class="stack" id="stack"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Every card is written on the spot from your three details. Nothing is saved &mdash; refresh and the press starts a fresh run.</p>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- the jokes ---------------- */
+
+  var OPENERS = [
+    "{age} candles, one cake, and a smoke alarm that has seen some things.",
+    "Happy {age}. That is not an age, that is a high score.",
+    "Congratulations on {age} laps around the sun with no recall notice from the manufacturer.",
+    "At {age} you have officially been alive longer than anything currently in my fridge.",
+    "{age}: old enough to know better, young enough to do it anyway.",
+    "Turning {age} just means the warranty has expired. Nobody read the manual anyway.",
+    "{age} looks fantastic on you, and only some of that is the lighting.",
+    "You are {age} today, which in dog years makes you very wise and slightly grumpy.",
+    "Somewhere a spreadsheet says you are {age}. Your knees have already filed a comment.",
+    "{age} years, zero refunds, and an unbroken streak of being excellent at parties."
+  ];
+
+  var MIDDLES = [
+    "The plan is apparently to spend the entire day on {hobby}, which is legally the correct way to age.",
+    "May your {hobby} be flawless and your excuses be even better.",
+    "Statistically, someone your age should have chosen a calmer hobby than {hobby}. Statistics have been wrong before.",
+    "Anyone who does this much {hobby} has earned cake for breakfast. I do not make the rules, I only enforce them.",
+    "If {hobby} counted as cardio you would be immortal by now.",
+    "Here is to another year of {hobby} and calling it a personality trait. It is a great one.",
+    "You have done {hobby} for so long it stopped being a hobby and became an unpaid internship.",
+    "Your gift is one uninterrupted hour of {hobby}. The offer expires when the cake does.",
+    "Nobody talks about {hobby} the way you talk about {hobby}, and honestly the group chat has accepted it.",
+    "Studies show {hobby} adds years to your life, which is either a blessing or a scheduling problem."
+  ];
+
+  var CLOSERS = [
+    "Happy birthday, {name}. Blow out the candles before the frosting gives up.",
+    "Have an absurdly good one, {name}.",
+    "Eat the cake first, {name}. Ask the questions later.",
+    "Enjoy every crumb of it, {name}. You earned them.",
+    "Happy birthday, {name}, from someone who remembered without a calendar reminder. Mostly.",
+    "Go be {age} at people, {name}. They will cope."
+  ];
+
+  var SIGNOFFS = [
+    "with cake and no regrets,",
+    "yours in frosting,",
+    "many happy returns,",
+    "with love and mild concern,"
+  ];
+
+  var SAMPLES = [
+    { name: "Dilara", age: 30, hobby: "bouldering" },
+    { name: "Marcus", age: 41, hobby: "sourdough" },
+    { name: "Priya", age: 7, hobby: "dinosaurs" },
+    { name: "Jonas", age: 65, hobby: "sea swimming" },
+    { name: "Aylin", age: 22, hobby: "karaoke" },
+    { name: "Rue", age: 55, hobby: "restoring old motorbikes" }
+  ];
+
+  var last = { o: -1, m: -1, c: -1, s: -1 };
+
+  function pick(list, key) {
+    var i = Math.floor(Math.random() * list.length);
+    if (list.length > 1 && i === last[key]) i = (i + 1) % list.length;
+    last[key] = i;
+    return list[i];
+  }
+
+  function fill(text, d) {
+    return text
+      .replace(/\{name\}/g, d.name)
+      .replace(/\{age\}/g, String(d.age))
+      .replace(/\{hobby\}/g, d.hobby);
+  }
+
+  function writeMessage(d) {
+    return [pick(OPENERS, "o"), pick(MIDDLES, "m"), pick(CLOSERS, "c")]
+      .map(function (t) { return fill(t, d); })
+      .join(" ");
+  }
+
+  function ordinal(n) {
+    var rem100 = n % 100;
+    if (rem100 >= 11 && rem100 <= 13) return n + "th";
+    switch (n % 10) {
+      case 1: return n + "st";
+      case 2: return n + "nd";
+      case 3: return n + "rd";
+      default: return n + "th";
+    }
+  }
+
+  /* ---------------- festive title, recolouring every 90-100 ms ---------------- */
+
+  var titleEl = document.getElementById("festiveTitle");
+  var SWATCHES = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"];
+  var letters = [];
+  var partyOn = true;
+
+  (function buildTitle() {
+    var text = titleEl.textContent;
+    titleEl.textContent = "";
+    titleEl.setAttribute("aria-label", text);
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (ch === " ") { titleEl.appendChild(document.createTextNode(" ")); continue; }
+      var span = document.createElement("span");
+      span.className = "ltr";
+      span.textContent = ch;
+      span.setAttribute("aria-hidden", "true");
+      span.dataset.swatch = String(i % SWATCHES.length);
+      titleEl.appendChild(span);
+      letters.push(span);
+    }
+    paintAll();
+  })();
+
+  function swatch(i) {
+    return getComputedStyle(document.documentElement).getPropertyValue(SWATCHES[i]).trim();
+  }
+
+  function paintAll() {
+    letters.forEach(function (el) { el.style.color = swatch(Number(el.dataset.swatch)); });
+  }
+
+  var calm = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  function cycle(el) {
+    // Each letter picks a new colour after a random 90-100 ms beat, so the
+    // title shimmers instead of flashing in lockstep.
+    var delay = 90 + Math.random() * 10;
+    el.timer = setTimeout(function () {
+      if (partyOn && !calm.matches) {
+        var next = (Number(el.dataset.swatch) + 1 + Math.floor(Math.random() * 3)) % SWATCHES.length;
+        el.dataset.swatch = String(next);
+        el.style.color = swatch(next);
+      }
+      cycle(el);
+    }, delay);
+  }
+
+  letters.forEach(cycle);
+
+  var toggle = document.getElementById("partyToggle");
+  toggle.addEventListener("click", function () {
+    partyOn = !partyOn;
+    toggle.textContent = partyOn ? "Pause the colours" : "Start the colours";
+    toggle.setAttribute("aria-pressed", String(!partyOn));
+  });
+  if (calm.matches) {
+    toggle.textContent = "Colours held still";
+    toggle.disabled = true;
+  }
+
+  /* ---------------- the press ---------------- */
+
+  var form = document.getElementById("cardForm");
+  var stack = document.getElementById("stack");
+  var tallyEl = document.getElementById("tally");
+  var toastEl = document.getElementById("toast");
+  var printed = 0;
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toast.t);
+    toast.t = setTimeout(function () { toastEl.classList.remove("show"); }, 1800);
+  }
+
+  function setError(fieldId, msg) {
+    var field = document.getElementById(fieldId);
+    field.classList.toggle("bad", Boolean(msg));
+    field.querySelector(".err").textContent = msg || "";
+  }
+
+  function readForm() {
+    var name = form.name.value.trim();
+    var ageRaw = form.age.value.trim();
+    var hobby = form.hobby.value.trim();
+    var age = parseInt(ageRaw, 10);
+    var ok = true;
+
+    setError("f-name", "");
+    setError("f-age", "");
+    setError("f-hobby", "");
+
+    if (!name) { setError("f-name", "Who is the card for?"); ok = false; }
+    if (!ageRaw || isNaN(age) || age < 1 || age > 130) {
+      setError("f-age", "A number of candles between 1 and 130, please.");
+      ok = false;
+    }
+    if (!hobby) { setError("f-hobby", "Give me something to work with — a hobby, any hobby."); ok = false; }
+
+    return ok ? { name: name, age: age, hobby: hobby.replace(/\.$/, "") } : null;
+  }
+
+  function buildCard(d) {
+    printed += 1;
+    var no = String(printed).padStart(3, "0");
+    var est = new Date().getFullYear() - d.age;
+
+    var card = document.createElement("article");
+    card.className = "card fresh";
+    card.innerHTML =
+      '<div class="spread">' +
+        '<div class="leaf-left">' +
+          '<span class="stamp">No. ' + no + '</span>' +
+          '<div class="age-block">' +
+            '<span class="age-num">' + esc(d.age) + '</span>' +
+            '<span class="age-word">years of ' + esc(d.hobby) + '</span>' +
+          '</div>' +
+          '<span class="est">Est. ' + est + '</span>' +
+        '</div>' +
+        '<div class="leaf-right">' +
+          '<p class="greeting">Happy ' + esc(ordinal(d.age)) + ', ' + esc(d.name) + '!</p>' +
+          '<p class="message"></p>' +
+          '<p class="signoff">' + esc(pick(SIGNOFFS, "s")) + '</p>' +
+          '<span class="sig-line" aria-hidden="true"></span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card-tools">' +
+        '<button class="tool" type="button" data-act="reword">↻ Reword</button>' +
+        '<button class="tool" type="button" data-act="copy">Copy text</button>' +
+        '<button class="tool" type="button" data-act="bin">Bin it</button>' +
+        '<span class="filed">Card ' + no + '</span>' +
+      '</div>';
+
+    var msgEl = card.querySelector(".message");
+    msgEl.textContent = writeMessage(d);
+
+    card.querySelector('[data-act="reword"]').addEventListener("click", function () {
+      msgEl.textContent = writeMessage(d);
+      msgEl.classList.remove("swap");
+      void msgEl.offsetWidth;
+      msgEl.classList.add("swap");
+    });
+
+    card.querySelector('[data-act="copy"]').addEventListener("click", function () {
+      var text = card.querySelector(".greeting").textContent + "\n\n" +
+                 msgEl.textContent + "\n\n" +
+                 card.querySelector(".signoff").textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { toast("Card copied"); },
+          function () { toast("Copy blocked — select the text instead"); }
+        );
+      } else {
+        toast("Copy blocked — select the text instead");
+      }
+    });
+
+    card.querySelector('[data-act="bin"]').addEventListener("click", function () {
+      card.remove();
+      if (!stack.querySelector(".card")) showEmpty();
+    });
+
+    return card;
+  }
+
+  function showEmpty() {
+    var p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = "The press is idle. Fill in three details and print one.";
+    stack.appendChild(p);
+  }
+
+  function addCard(d) {
+    var empty = stack.querySelector(".empty");
+    if (empty) empty.remove();
+
+    var prevNewest = stack.querySelector(".tool.newest");
+    if (prevNewest) prevNewest.remove();
+
+    var card = buildCard(d);
+    var badge = document.createElement("span");
+    badge.className = "tool newest";
+    badge.textContent = "Wet ink";
+    card.querySelector(".card-tools").prepend(badge);
+
+    stack.prepend(card);
+    var n = stack.querySelectorAll(".card").length;
+    tallyEl.textContent = n + (n === 1 ? " card" : " cards");
+    setTimeout(function () { card.classList.remove("fresh"); }, 600);
+    return card;
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var d = readForm();
+    if (!d) return;
+    var card = addCard(d);
+    card.scrollIntoView({ behavior: calm.matches ? "auto" : "smooth", block: "nearest" });
+  });
+
+  document.getElementById("surprise").addEventListener("click", function () {
+    var s = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
+    form.name.value = s.name;
+    form.age.value = s.age;
+    form.hobby.value = s.hobby;
+    setError("f-name", ""); setError("f-age", ""); setError("f-hobby", "");
+  });
+
+  // Open on a working press rather than an empty one.
+  addCard({ name: "Dilara", age: 30, hobby: "bouldering" });
+})();
+</script>
+</body>
+</html>
